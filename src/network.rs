@@ -54,14 +54,14 @@ impl Network {
                 loop {
                     {
                         let mut n = node_ref.lock().await;
-                        let (data_root, key_root) = n.mine_data();
+                        let (data_root, key_root) = n.mine_data().await;
                         n.try_commit_keyblock(data_root, key_root);
                     }
 
                     // Отправляем нейроны всем пирами
                     for peer in &peers {
                         let n = node_ref.lock().await;
-                        let neurons_json = n.export_neurons_json();
+                        let neurons_json = n.export_neurons_json().await;
                         drop(n);
 
                         let msg = json!({

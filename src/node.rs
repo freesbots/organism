@@ -4,7 +4,8 @@ use crate::neuron::Neuron;
 use crate::energy::Energy;
 use rand::{thread_rng, Rng};
 use serde_json;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use log::info;
 use serde_json::json; 
 
@@ -45,29 +46,42 @@ impl Node {
     }
 
     /// Экспортируем нейроны в JSON для обмена между нодами
-    pub fn export_neurons_json(&self) -> String {
-        let neurons = self.neurons.lock().unwrap();
+    pub async fn export_neurons_json(&self) -> String {
+        let neurons = self.neurons.lock().await;
         serde_json::to_string(&*neurons).unwrap_or_else(|_| "[]".into())
     }
 
     /// Импортируем нейроны из JSON (обновляем внутреннюю структуру)
-    pub fn import_neurons_json(&mut self, json_data: &str) {
+    pub async fn import_neurons_json(&mut self, json_data: &str) {
         if let Ok(neurons) = serde_json::from_str::<Vec<Neuron>>(json_data) {
             println!("🧬 Импортировано {} нейронов", neurons.len());
-            *self.neurons.lock().unwrap() = neurons;
+            *self.neurons.lock().await = neurons;
         } else {
             println!("⚠️ Ошибка при импорте нейронов");
         }
     }
+    pub fn mine_block(&mut self) {
+        println!("⛏️  Node {} mined a new block!", self.name);
+        // Здесь можешь добавить работу с цепочкой, энергией и т.п.
+    }
+    pub async fn get_chain_summary(&self) -> Vec<String> {
+        let chain = self.data_chain.lock().await; // асинхронный захват блокировки
+
+            chain
+                .blocks
+                .iter()
+                .map(|b| format!("Block {}: {}", b.index, b.hash))
+                .collect()
+    }
     
-    pub fn latest_block_json(&self) -> String {
-        if let Some(b) = self.data_chain.lock().unwrap().blocks.last() {
+    pub async fn latest_block_json(&self) -> String {
+        if let Some(last_block) = self.data_chain.lock().await.blocks.last() {
             serde_json::to_string(&json!({
-                "index": b.index,
-                "data_root": b.data_root,
-                "key_root": b.key_root,
-                "validator": b.validator,
-                "hash": b.hash
+                "index": last_block.index,
+                "data_root": last_block.data_root,
+                "key_root": last_block.key_root,
+                "validator": last_block.validator,
+                "hash": last_block.hash
             })).unwrap()
         } else {
             "{}".into()
@@ -91,23 +105,23 @@ impl Node {
         }
     }
     // === Симуляция добычи данных ===
-    pub fn mine_data(&self) -> (String, String) {
+    pub async fn mine_data(&self) -> (String, String) {
         let data_root = format!("{:x}", rand::random::<u64>());
         let key_root = format!("{:x}", rand::random::<u64>());
         (data_root, key_root)
     }
 
     // === Завершение блока ===
-    pub fn finalize_keyblock(&self, data_root: String, key_root: String, winner: &str) {
-        let mut kchain = self.key_chain.lock().unwrap();
+    pub async fn finalize_keyblock(&self, data_root: String, key_root: String, winner: &str) {
+        let mut kchain = self.key_chain.lock().await;
         kchain.add_block(data_root, key_root, winner.to_string());
         println!("✅ Валидатор {} закрыл KeyBlock", winner);
     }
 
     // === Получение последних блоков для синхронизации ===
-    pub fn last_blocks_json(&self) -> String {
-        let d = self.data_chain.lock().unwrap();
-        let k = self.key_chain.lock().unwrap();
+    pub async fn last_blocks_json(&self) -> String {
+        let d = self.data_chain.lock().await;
+        let k = self.key_chain.lock().await;
         serde_json::json!({
             "data_chain": d.blocks,
             "key_chain": k.blocks,
@@ -116,10 +130,10 @@ impl Node {
     }
 
     // === Получение блоков от сети ===
-    pub fn add_blocks_from_json(&self, json_str: String) {
+    pub async fn add_blocks_from_json(&self, json_str: String) {
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap_or_default();
-        let mut d = self.data_chain.lock().unwrap();
-        let mut k = self.key_chain.lock().unwrap();
+        let mut d = self.data_chain.lock().await;
+        let mut k = self.key_chain.lock().await;
         if let Some(data_blocks) = parsed["data_chain"].as_array() {
             for b in data_blocks {
                 if let Some(val) = b["validator"].as_str() {
@@ -139,8 +153,8 @@ impl Node {
     
 
     // === Основной PoC и обучение нейронов ===
-    pub fn try_commit_keyblock(&mut self, data_root: String, key_root: String) -> (u64, bool) {
-        let mut energy = self.energy.lock().unwrap();
+    pub async fn try_commit_keyblock(&mut self, data_root: String, key_root: String) -> (u64, bool) {
+        let mut energy = self.energy.lock().await;
 
         if energy.level <= 0.0 {
             println!("😴 {} устал и не участвует", self.name);
@@ -160,7 +174,7 @@ impl Node {
             println!("👑 Победитель PoC — {}", self.name);
 
             let chain_len = {
-                let chain = self.data_chain.lock().unwrap();
+                let chain = self.data_chain.lock().await;
                 chain.blocks.len()
             };
 
@@ -175,7 +189,7 @@ impl Node {
                 neuron.id, inputs, neuron.value, loss
             );
             // === 🧬 создаём синапс между новым и предыдущим нейроном ===
-            let mut synapses = self.synapse_chain.lock().unwrap();
+            let mut synapses = self.synapse_chain.lock().await;
             if neuron.id > 0 {
                 let weight: f64 = rand::random();
                 synapses.connect(neuron.id - 1, neuron.id, weight);
@@ -187,12 +201,12 @@ impl Node {
             let neuron_json = serde_json::to_string(&neuron).unwrap();
 
             {
-                let mut dchain = self.data_chain.lock().unwrap();
+                let mut dchain = self.data_chain.lock().await;
                 dchain.add_block(neuron_json, "key_placeholder".into(), self.name.clone());
             }
 
             {
-                let mut kchain = self.key_chain.lock().unwrap();
+                let mut kchain = self.key_chain.lock().await;
                 kchain.add_block("data_hash".into(), key_root.clone(), self.name.clone());
             }
 
@@ -224,10 +238,10 @@ impl Node {
         // ✅ возвращаем в самом конце
         (commit_value, true)
     }
-    pub fn try_merge_chain_json(&mut self, json: String) {
+    pub async fn try_merge_chain_json(&mut self, json: String) {
         if let Ok(other_chain) = serde_json::from_str::<crate::chain::Chain>(&json) {
             // 🔒 Получаем доступ к заблокированной цепочке
-            let mut current_chain = self.data_chain.lock().unwrap();
+            let mut current_chain = self.data_chain.lock().await;
 
             if other_chain.blocks.len() > current_chain.blocks.len() {
                 println!(
@@ -250,10 +264,10 @@ impl Node {
     }
 
     // === Энергообмен между нодами ===
-    pub fn share_energy(&mut self, target: &mut Node) {
+    pub async fn share_energy(&mut self, target: &mut Node) {
 
-        let mut my_energy = self.energy.lock().unwrap();
-        let mut target_energy = target.energy.lock().unwrap();
+        let mut my_energy = self.energy.lock().await;
+        let mut target_energy = target.energy.lock().await;
 
         // Минимальный порог для помощи
         if my_energy.level < 30.0 {

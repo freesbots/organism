@@ -3,6 +3,9 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use crate::energy_evolution::EnergyEvolution;
 use std::fmt;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use futures::future::join_all;
 
  
 
@@ -45,19 +48,21 @@ impl fmt::Display for Energy {
 pub struct EnergySystem;
 
 impl EnergySystem {
-    pub fn tick(nodes: &mut Vec<Node>) {
+    pub async fn tick(nodes: &mut Vec<Node>) {
         // 1️⃣ Сначала делаем снимок уровней энергии (чтобы избежать пересечений borrow)
-        let energy_snapshot: Vec<f64> = nodes
-            .iter()
-            .map(|n| n.energy.lock().unwrap().level)
-            .collect();
+        let energy_snapshot: Vec<f64> = join_all(
+            nodes.iter().map(|n| async {
+                let e = n.energy.lock().await;
+                e.level
+            })
+        ).await;
 
         // 2️⃣ Теперь спокойно проходим по всем нодам
         let total_nodes = nodes.len();
         for i in 0..total_nodes {
             // Естественное восстановление энергии
             {
-                let mut e = nodes[i].energy.lock().unwrap();
+                let mut e = nodes[i].energy.lock().await;
                 e.restore(0.3);
                 if e.level > 100.0 {
                     e.level = 100.0;
@@ -77,7 +82,7 @@ impl EnergySystem {
             let mut rng = thread_rng();
             if let Some(&target_idx) = weak_nodes.choose(&mut rng) {
                 let giver_level = {
-                    let e = nodes[i].energy.lock().unwrap();
+                    let e = nodes[i].energy.lock().await;
                     e.level
                 };
 
@@ -85,17 +90,17 @@ impl EnergySystem {
                     let transfer = (giver_level * 0.1).min(10.0);
 
                     {
-                        let mut giver_e = nodes[i].energy.lock().unwrap();
+                        let mut giver_e = nodes[i].energy.lock().await;
                         giver_e.consume(transfer);
                     }
 
                     {
-                        let mut receiver_e = nodes[target_idx].energy.lock().unwrap();
+                        let mut receiver_e = nodes[target_idx].energy.lock().await;
                         receiver_e.restore(transfer);
                     }
 
-                    let giver_now = nodes[i].energy.lock().unwrap().level;
-                    let receiver_now = nodes[target_idx].energy.lock().unwrap().level;
+                    let giver_now = nodes[i].energy.lock().await.level;
+                    let receiver_now = nodes[target_idx].energy.lock().await.level;
 
                     println!(
                         "🔋 {} → {} передача {:.2} энергии (теперь {:.2}/{:.2})",

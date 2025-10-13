@@ -16,4 +16,5 @@ md5 = "0.7"
 axum = "0.7"  
 tower = "0.4"                 # ✅ добавь эту строку
 tower-http = { version = "0.5", features = ["cors"] }  # ✅ для CORS
-
+futures = "0.3"
+ 
