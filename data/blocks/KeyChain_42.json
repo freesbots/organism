@@ -1,0 +1,9 @@
+{
+  "index": 42,
+  "prev_hash": "0abaa88248611cac1e6d13f76d95abf67bf029c2474cb523bb8754907e89c01b",
+  "timestamp": 1760313154,
+  "data_root": "aac295dff9bc80f4",
+  "key_root": "91d9c3b12e3afeba",
+  "validator": "Validator-X",
+  "hash": "a062f9016aa0f168383c308043040405a707b9a3fcaee3f95f5fa859937054e5"
+}

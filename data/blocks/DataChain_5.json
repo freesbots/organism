@@ -1,0 +1,9 @@
+{
+  "index": 5,
+  "prev_hash": "c91bc87e0cc5ec5591c4ff33ca6f2aab66282b99054fab73df8301992af0a364",
+  "timestamp": 1760313064,
+  "data_root": "{\"id\":5,\"value\":0.6009449964385511,\"weights\":[-0.7179118435867456,0.8669007213723302,-0.12764543165199496]}",
+  "key_root": "key_placeholder",
+  "validator": "Node-4000",
+  "hash": "e4a5ea5346de82d79b6232ad4c3d4fcfbce71bc4e4b9d346179c7a9be458e998"
+}

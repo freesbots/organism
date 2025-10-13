@@ -1,0 +1,23 @@
+{
+  "name": "DataChain",
+  "blocks": [
+    {
+      "index": 0,
+      "data_root": "genesis",
+      "key_root": "genesis",
+      "validator": "system"
+    },
+    {
+      "index": 1,
+      "data_root": "{\"id\":1,\"value\":0.4207970306082398,\"weights\":[-0.2994294610324344,-0.7211954981782245,-0.467132593623497]}",
+      "key_root": "key_placeholder",
+      "validator": "Node-4001"
+    },
+    {
+      "index": 2,
+      "data_root": "{\"id\":2,\"value\":0.31401987955398514,\"weights\":[-0.36474864770757004,-0.4384283586097584,-0.6800404618455099]}",
+      "key_root": "key_placeholder",
+      "validator": "Node-4001"
+    }
+  ]
+}
