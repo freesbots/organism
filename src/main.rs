@@ -66,21 +66,22 @@ async fn main() {
         .allow_headers(tower_http::cors::Any);
 
     let app = axum::Router::new()
-        .route("/nodes", get({
+        .route("/nodes", axum::routing::get({
             let node = node.clone();
             move || async move {
                 let n = node.lock().await;
-                let e = n.energy.lock().unwrap().level; // ✅ берём f64
+                let energy_level = n.energy.lock().unwrap().level; // ✅ достаём уровень энергии из мьютекса
 
                 let data = vec![serde_json::json!({
                     "name": n.name,
-                    "energy": e,
+                    "energy": energy_level,
                     "efficiency": n.efficiency,
                     "altruism": n.altruism,
                     "resilience": n.resilience,
                     "experience": n.experience,
                 })];
-                Json(data)
+
+                axum::Json(data)
             }
         }))
         .layer(tower::ServiceBuilder::new().layer(cors));
