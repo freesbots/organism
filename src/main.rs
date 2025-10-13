@@ -5,6 +5,7 @@ mod synapse;
 mod energy;
 mod neuron; 
 mod energy_evolution;
+mod api;
 
 use axum::{
     routing::get,
@@ -19,6 +20,7 @@ use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use network::Network;
 use node::Node;  
+use api::{create_router, AppState};
 
 #[derive(Serialize)]
 struct NodeView {
@@ -34,88 +36,24 @@ struct NodeView {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    // 🔹 Инициализация списка нод
+    let nodes: Arc<Mutex<Vec<Arc<Mutex<Node>>>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let args: Vec<String> = std::env::args().collect();
+    // 🔹 Добавляем несколько тестовых нод
+    for i in 0..3 {
+        let node = Arc::new(Mutex::new(Node::new(format!("Node-{}", i))));
+        nodes.lock().unwrap().push(node);
+    }
 
-    let port: u16 = args.get(1).unwrap_or(&"4000".to_string()).parse().unwrap();
-    let peer_opt: Option<String> = args.get(2).cloned();
-    let api_port: u16 = args.get(3).unwrap_or(&"8080".to_string()).parse().unwrap();
+    // 🔹 Создаём состояние приложения
+    let state = AppState { nodes: nodes.clone() };
 
-    let peers = if let Some(p) = peer_opt.clone() {
-        vec![p]
-    } else {
-        vec![]
-    };
+    // 🔹 Поднимаем HTTP API сервер
+    let app = create_router(state);
 
-    let node_name = format!("Node-{}", port);
-    let node = Arc::new(Mutex::new(Node::new(&node_name)));
-    let net = Network::new(port, peers);
- 
-    let node_for_net = node.clone();
-
-    println!("🚀 Запуск {} на порту {}", node_name, port);
-    tokio::spawn(async move {
-        net.start(node_for_net).await;
-    });
-
-    // === API ===
-    let cors = tower_http::cors::CorsLayer::new()
-        .allow_origin(tower_http::cors::Any)
-        .allow_methods(tower_http::cors::Any)
-        .allow_headers(tower_http::cors::Any);
-
-    let app = axum::Router::new()
-        .route("/nodes", axum::routing::get({
-            let node = node.clone();
-            move || async move {
-                let n = node.lock().await;
-                let energy_level = n.energy.lock().unwrap().level; // ✅ достаём уровень энергии из мьютекса
-
-                let data = vec![serde_json::json!({
-                    "name": n.name,
-                    "energy": energy_level,
-                    "efficiency": n.efficiency,
-                    "altruism": n.altruism,
-                    "resilience": n.resilience,
-                    "experience": n.experience,
-                })];
-
-                axum::Json(data)
-            }
-        }))
-        .layer(tower::ServiceBuilder::new().layer(cors));
-
-    println!("🌐 API доступно на http://127.0.0.1:{}/nodes", api_port);
-
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", api_port))
+    println!("🌐 API запущено на http://127.0.0.1:3000");
+    Server::bind(&"127.0.0.1:3000".parse().unwrap())
+        .serve(app.into_make_service())
         .await
-        .expect("Не удалось запустить API");
-    axum::serve(listener, app).await.unwrap();
-}
-
-
-async fn get_nodes(state: Arc<Mutex<Vec<Node>>>) -> Json<Vec<NodeView>> {
-    let guard = state.lock().await;
-
-    let data: Vec<NodeView> = guard
-        .iter()
-        .enumerate()
-        .map(|(i, n)| {
-            let energy = n.energy.lock().unwrap().level; // 🔹 достаём уровень энергии
-
-            NodeView {
-                name: n.name.clone(),
-                energy, // теперь f64
-                efficiency: n.efficiency,
-                altruism: n.altruism,
-                resilience: n.resilience,
-                experience: n.experience,
-                x: (i as f64) * 200.0 + 100.0,
-                y: ((i as f64).sin() * 150.0 + 300.0),
-            }
-        })
-        .collect();
-
-    Json(data)
+        .unwrap();
 }
