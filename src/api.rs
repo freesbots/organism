@@ -11,12 +11,17 @@ use futures::future::join_all;
 use crate::wallet::Wallet;
 use crate::node::Node;
 use crate::economy::NetworkFund;
-
+use crate::memory::BrainEvent;  
+use crate::brain::Brain; 
+use serde_json::json;
+  
+  
 #[derive(Clone)]
 pub struct AppState {
     pub nodes: Arc<Mutex<Vec<Arc<Mutex<Node>>>>>,
-    pub fund: NetworkFund,
-}
+    pub fund: Arc<Mutex<NetworkFund>>,
+    pub brain: Arc<Mutex<Brain>>,
+} 
 
 #[derive(Serialize)]
 struct NodeInfo {
@@ -33,15 +38,50 @@ pub struct WalletInfo {
     pub name: String,
     pub balance: f64,
 }
+ 
+pub async fn get_brain_memory(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let brain = state.brain.lock().await;
+    let memory = brain.memory.get_recent(10).await;
+
+    let formatted: Vec<_> = memory
+        .into_iter()
+        .map(|e| {
+            json!({
+                "timestamp": e.timestamp,
+                "action": e.action,
+                "context": e.context,
+                "result": e.result
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "recent_memory": formatted
+    }))
+}
 
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(root))
+    
+
+async fn get_brain_state(state: State<AppState>) -> Json<serde_json::Value> {
+    let brain = state.brain.lock().await;
+    let avg_result = brain.memory.average_result(20).await;
+    
+    Json(serde_json::json!({
+        "aggressiveness": brain.aggressiveness,
+        "avg_recent_result": avg_result
+    }))
+}
+
+Router::new()
+        .route("/", get(root)) 
         .route("/nodes", get(get_nodes))
+        .route("/brain/state", get(get_brain_state))
         .route("/mine/:id", post(mine_block))
         .route("/chain/:id", get(get_chain))
         .route("/update/:id", post(update_node))
         .route("/wallets", get(get_wallets))
+        .route("/brain/memory", get(get_brain_memory))
         .with_state(state)
 }
 
@@ -94,7 +134,7 @@ async fn get_nodes(State(state): State<AppState>) -> Json<Vec<NodeInfo>> {
 async fn mine_block(State(state): State<AppState>, Path(id): Path<usize>) -> Json<String> {
     let nodes = state.nodes.lock().await;
     if let Some(node) = nodes.get(id) {
-        let mut n = node.lock().await;
+        let n = node.lock().await;
 
         // ⛏️ Симуляция майнинга блока
         let reward = 15.0;
@@ -111,7 +151,7 @@ async fn mine_block(State(state): State<AppState>, Path(id): Path<usize>) -> Jso
         }
 
         // 🏦 Добавляем в фонд
-        state.fund.add(fund_cut);
+        state.fund.lock().await.add(fund_cut);
 
         let response = format!(
             "⛏️ Блок добыт нодой {}: +{:.2} токенов, фонд +{:.2}",
@@ -166,8 +206,8 @@ async fn update_node(
         }
 
         let fee = 1.0;
-        let fund_cut = 0.5;
-        state.fund.add(fund_cut);
+        let fund_cut = 0.5; 
+        state.fund.lock().await.add(fund_cut);
         n.wallet.reward(fee - fund_cut).await;
 
         Json(format!("✅ Node {} updated", n.name))

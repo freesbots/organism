@@ -11,6 +11,7 @@ mod wallet;
 mod economy;
 mod economy_cycle;
 mod brain;
+mod memory;
 
 
 use std::sync::Arc;
@@ -40,13 +41,25 @@ async fn main() {
     let network = Arc::new(NetworkBus::new(100));
 
     // 🧩 Создаём несколько нод
-    let nodes: Vec<Arc<Mutex<Node>>> = (0..5)
-        .map(|i| Arc::new(Mutex::new(Node::new(&format!("Node-{}", i)))))
-        .collect();
+   let nodes: Arc<Mutex<Vec<Arc<Mutex<Node>>>>> = Arc::new(Mutex::new(
+    (0..5)
+            .map(|i| Arc::new(Mutex::new(Node::new(&format!("Node-{}", i)))))
+            .collect(),
+    ));
 
     // Оборачиваем в Arc<Mutex<Vec<...>>> — общий доступ
-    let shared_nodes = Arc::new(Mutex::new(nodes));
+    let shared_nodes = Arc::clone(&nodes);
+     // ✅ создаём общий фонд
     let fund = Arc::new(Mutex::new(NetworkFund::new()));
+
+    // ✅ создаём мозг
+    let brain = Arc::new(Mutex::new(Brain::new()));
+
+    // ✅ создаём клоны для потоков
+    let nodes_ref = Arc::clone(&nodes);
+    let fund_ref = Arc::clone(&fund);
+    let brain_ref = Arc::clone(&brain);
+    let brain_clone = Arc::clone(&brain);
 
     // 🧬 Запускаем обработчик сообщений
     for node in shared_nodes.lock().await.iter().cloned() {
@@ -118,16 +131,29 @@ async fn main() {
     // 🧠 Запускаем сознание (координация между нодами)
     {
         let nodes_ref = shared_nodes.clone();
-        let fund_ref = fund.clone();
+        let fund_ref = fund.clone(); 
+        println!("🧠 Инициализация мозга");
+
         task::spawn(async move {
             loop {
-                Brain::run(nodes_ref.clone(), fund_ref.clone()).await;
+                let nodes_ref_clone = Arc::clone(&nodes_ref);
+                let fund_ref_clone = Arc::clone(&fund_ref);
+                let brain_ref_clone = Arc::clone(&brain_clone);
+
+                brain_ref_clone
+                    .lock()
+                    .await
+                    .run(nodes_ref_clone, fund_ref_clone)
+                    .await;
+
                 tokio::time::sleep(Duration::from_secs(12)).await;
-                println!("🪶 [DEBUG] Сознание активировано...");
+                println!("🪶 [DEBUG] Сознание активировано..."); 
             }
         });
     }
     
+    /* start_api(nodes.clone(), fund.clone(), brain_ref.clone()).await;
+ */
     /* {
 
         let nodes_clone = nodes.clone();
@@ -140,7 +166,8 @@ async fn main() {
     // 🌍 API сервер
     let state = api::AppState {
         nodes: shared_nodes.clone(),
-        fund: NetworkFund::new(),
+        fund: Arc::clone(&fund),
+        brain: brain_ref.clone(),
     };
     let app: Router = create_router(state);
 

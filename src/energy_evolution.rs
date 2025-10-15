@@ -16,7 +16,7 @@ impl EnergyEvolution {
             let mut n = node.lock().await;
 
             // --- Работаем с энергией ---
-            let (mut energy_level, efficiency, resilience) = {
+            let (energy_level, efficiency, resilience) = {
                 let mut energy = n.energy.lock().await;
 
                 // 🧮 Энергозатраты

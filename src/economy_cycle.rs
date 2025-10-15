@@ -18,7 +18,7 @@ impl EconomyCycle {
                 println!("💫 [DEBUG] Цикл экономики активен...");
                 let nodes_guard = nodes.lock().await;
                 for node in nodes_guard.iter() {
-                    let mut n = node.lock().await;
+                    let n = node.lock().await;
                     let mut energy = n.energy.lock().await;
                     let balance = *n.wallet.balance.lock().await;
 
@@ -52,13 +52,13 @@ impl EconomyCycle {
 
             // ⚡ Если вся сеть устала — подпитываем из фонда
             if avg_energy < 25.0 {
-                let mut fund_guard = fund.lock().await;
+                let fund_guard = fund.lock().await;
                 let mut total = fund_guard.total.lock().await; // получаем доступ к значению f64
 
                 if *total > 5.0 {
                     println!("⚡ Сеть получает подпитку от NetworkFund!");
                     for node in nodes.lock().await.iter() {
-                        let mut n = node.lock().await;
+                        let n = node.lock().await;
                         let mut e = n.energy.lock().await;
                         e.level += 10.0;
                     }
@@ -79,7 +79,7 @@ impl EconomyCycle {
         let mut rng = StdRng::from_entropy(); 
 
         if let Some(helper) = nodes.get(rng.gen_range(0..nodes.len())) {
-            let mut h = helper.lock().await;
+            let h = helper.lock().await;
             if h.name == weak_name {
                 return;
             }

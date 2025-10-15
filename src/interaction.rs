@@ -66,7 +66,7 @@ impl NetworkBus {
 
 /// Пример поведения ноды при получении сообщения
 pub async fn handle_message(node: Arc<Mutex<Node>>, msg: Message, network: Arc<NetworkBus>) {
-    let mut n = node.lock().await;
+    let n = node.lock().await;
 
     match msg.msg_type {
         MessageType::HelpRequest => {
