@@ -28,8 +28,9 @@ use crate::node::Node;
 use crate::api::{AppState, create_router};
 use crate::energy_evolution::EnergyEvolution;
 use crate::economy::NetworkFund;
-use crate::economy_cycle::EconomyCycle;
-use crate::brain::Brain;
+use crate::economy_cycle::EconomyCycle; 
+use crate::brain::{Brain, BrainSnapshot};
+use chrono::Utc;
 
 
 
@@ -57,11 +58,21 @@ async fn main() {
     // ✅ создаём мозг
     let brain = Arc::new(RwLock::new(Brain::new()));
 
+    let snapshot = Arc::new(RwLock::new(BrainSnapshot {
+        aggressiveness: 1.0,
+        avg_recent_result: 0.0,
+        recent_memory: Vec::new(),
+        last_update: chrono::Utc::now().timestamp(),
+    }));
+ 
+
     // ✅ создаём клоны для потоков
     let nodes_ref = Arc::clone(&nodes);
     let fund_ref = Arc::clone(&fund);
     let brain_ref: Arc<RwLock<Brain>> = Arc::clone(&brain);
     let brain_clone: Arc<RwLock<Brain>> = Arc::clone(&brain);
+    let snapshot_ref: Arc<RwLock<BrainSnapshot>> = Arc::clone(&snapshot);
+    let snapshot_task_ref = Arc::clone(&snapshot_ref);
 
     // 🧬 Запускаем обработчик сообщений
     for node in shared_nodes.lock().await.iter().cloned() {
@@ -142,16 +153,22 @@ async fn main() {
                 let fund_ref_clone = Arc::clone(&fund_ref);
                 let brain_ref_clone: Arc<RwLock<Brain>> = Arc::clone(&brain_clone);
 
-                /* brain_ref_clone
-                    .write()
-                    .await
-                    .run(nodes_ref_clone, fund_ref_clone)
-                    .await; */
                 let mut brain = brain_ref_clone.write().await;
+                let mem = brain.memory.get_recent(10).await;
+                let avg = brain.memory.average_result(20).await;
+                let new_snapshot = BrainSnapshot::from_brain(&brain, avg, mem.clone());
+
+                let mut snap = snapshot_task_ref.write().await;
+                *snap = new_snapshot;
+                snap.aggressiveness = brain.aggressiveness;
+                snap.avg_recent_result = avg;
+                snap.recent_memory = mem; // ✅ исправлено
+                snap.last_update = Utc::now().timestamp();
+
                 brain.run_step(nodes_ref_clone.clone(), fund_ref_clone.clone()).await;
 
-                tokio::time::sleep(Duration::from_secs(12)).await;
-                println!("🪶 [DEBUG] Сознание активировано..."); 
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                println!("🪶 [DEBUG] Сознание активировано...");
             }
         });
     }
@@ -162,6 +179,7 @@ async fn main() {
         nodes: shared_nodes.clone(),
         fund: Arc::clone(&fund),
         brain: brain_ref.clone(),
+        snapshot: snapshot_ref.clone(),
     };
     let app: Router = create_router(state);
 

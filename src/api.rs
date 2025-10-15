@@ -15,6 +15,8 @@ use crate::economy::NetworkFund;
 use crate::memory::BrainEvent;  
 use crate::brain::Brain; 
 use serde_json::json;
+use tokio::sync::RwLockReadGuard;
+use crate::brain::BrainSnapshot;
   
   
 #[derive(Clone)]
@@ -22,6 +24,7 @@ pub struct AppState {
     pub nodes: Arc<Mutex<Vec<Arc<Mutex<Node>>>>>,
     pub fund: Arc<Mutex<NetworkFund>>,
     pub brain: Arc<RwLock<Brain>>,
+    pub snapshot: Arc<RwLock<BrainSnapshot>>,
 } 
 
 #[derive(Serialize)]
@@ -40,12 +43,9 @@ pub struct WalletInfo {
     pub balance: f64,
 }
 pub async fn get_brain_memory(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let brain = state.brain.read().await; // ← тут просто await, без match
+    let snap = state.snapshot.read().await;
 
-    let memory = brain.memory.get_recent(10).await;
-
-    let formatted: Vec<_> = memory
-        .into_iter()
+    let formatted: Vec<_> = snap.recent_memory.iter()
         .map(|e| {
             json!({
                 "timestamp": e.timestamp,
@@ -57,16 +57,20 @@ pub async fn get_brain_memory(State(state): State<AppState>) -> Json<serde_json:
         .collect();
 
     Json(json!({
+        "status": "ok",
         "recent_memory": formatted
     }))
-}
+} 
 pub async fn get_brain_state(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let brain = state.brain.read().await;
-    let avg_result = brain.memory.average_result(20).await;
+    // Снимок состояния — всегда доступен
+    let snapshot = state.snapshot.read().await;
 
     Json(json!({
-        "aggressiveness": brain.aggressiveness,
-        "avg_recent_result": avg_result
+        "status": "ok",
+        "aggressiveness": snapshot.aggressiveness,
+        "avg_recent_result": snapshot.avg_recent_result,
+        "last_update": snapshot.last_update,
+        "recent_memory": snapshot.recent_memory
     }))
 }
 pub fn create_router(state: AppState) -> Router { 

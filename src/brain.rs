@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
 use rand::{Rng, rngs::StdRng, SeedableRng};
 use crate::memory::{Memory, BrainEvent};
+use chrono::Utc;
 
 use crate::node::Node;
 use crate::economy::NetworkFund;
@@ -27,6 +28,28 @@ pub struct Brain {
     pub memory: Memory,
     pub aggressiveness: f64,
 }
+ 
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BrainSnapshot {
+    pub aggressiveness: f64,
+    pub avg_recent_result: f64,
+    pub recent_memory: Vec<BrainEvent>, 
+    pub last_update: i64,
+}
+
+impl BrainSnapshot {
+    pub fn from_brain(brain: &Brain, avg: f64, recent_memory: Vec<BrainEvent>) -> Self {
+        let recent_memory = futures::executor::block_on(brain.memory.get_recent(10));
+        Self {
+            aggressiveness: brain.aggressiveness,
+            avg_recent_result: avg,
+            recent_memory,
+            last_update: Utc::now().timestamp(),
+        }
+    }
+}
+ 
 
 
 
