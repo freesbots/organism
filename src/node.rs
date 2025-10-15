@@ -2,12 +2,14 @@ use crate::synapse::SynapseChain;
 use crate::chain::Chain;
 use crate::neuron::Neuron;
 use crate::energy::Energy;
-use rand::{thread_rng, Rng};
+use crate::wallet::Wallet; 
+use rand::{Rng, rngs::StdRng, SeedableRng};
 use serde_json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use log::info;
-use serde_json::json; 
+use serde_json::json;  
+
 
 
 
@@ -24,6 +26,8 @@ pub struct Node {
     pub synapse_chain: Arc<Mutex<SynapseChain>>,
     pub connections: Arc<Mutex<Vec<String>>>, // ✅ добавляем
     pub neurons: Arc<Mutex<Vec<Neuron>>>,     // ✅ добавляем
+    pub wallet: Wallet,
+    pub rng: Arc<Mutex<StdRng>>,
 }
 
 impl Node {
@@ -42,6 +46,8 @@ impl Node {
             synapse_chain: Arc::new(Mutex::new(SynapseChain::new())),
             connections: Arc::new(Mutex::new(vec![])),
             neurons: Arc::new(Mutex::new(vec![])),
+            wallet: Wallet::new(),
+            rng: Arc::new(Mutex::new(StdRng::from_entropy())),
         }
     }
 
@@ -63,6 +69,9 @@ impl Node {
     pub fn mine_block(&mut self) {
         println!("⛏️  Node {} mined a new block!", self.name);
         // Здесь можешь добавить работу с цепочкой, энергией и т.п.
+        self.wallet.deposit(2.0); // награда за блок
+        println!("💰 {} получил 2 токена за добычу блока!", self.name);
+
     }
     pub async fn get_chain_summary(&self) -> Vec<String> {
         let chain = self.data_chain.lock().await; // асинхронный захват блокировки
@@ -101,7 +110,9 @@ impl Node {
             key_chain: Arc::clone(&self.key_chain),
             synapse_chain: Arc::clone(&self.synapse_chain),
             connections: Arc::clone(&self.connections),
-            neurons: Arc::clone(&self.neurons),
+            neurons: Arc::clone(&self.neurons), 
+            wallet: self.wallet.clone(),
+            rng: Arc::clone(&self.rng),
         }
     }
     // === Симуляция добычи данных ===
@@ -219,7 +230,7 @@ impl Node {
 
             // Попробуем помочь соседу (случайно)
             use rand::seq::SliceRandom;
-            let mut rng = thread_rng();
+            let mut rng = StdRng::from_entropy();
             let maybe_peer = ["Node-4000", "Node-4001", "Node-4002"].choose(&mut rng).unwrap();
 
             if maybe_peer != &self.name {
@@ -231,8 +242,8 @@ impl Node {
         if energy.level > 100.0 {
             energy.level = 100.0;
         }
-        let mut rng = thread_rng();
-        let commit_value: u64 = rng.gen_range(1..=1000);
+        let mut rng = StdRng::from_entropy();
+        let commit_value: u64 = rng.gen_range(1..=1000); 
         info!("⚔️ {} участвует в PoC, значение: {}", self.name, commit_value); 
         
         // ✅ возвращаем в самом конце

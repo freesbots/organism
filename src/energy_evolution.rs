@@ -2,57 +2,64 @@ use crate::node::Node;
 use rand::Rng;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use rand::{SeedableRng, rngs::StdRng};
+
 
 pub struct EnergyEvolution;
 
 impl EnergyEvolution {
     pub async fn evolve(nodes: &mut Vec<Arc<Mutex<Node>>>) {
-        // 🔁 Энергетический цикл для каждой ноды
+        /* let mut rng = rand::thread_rng(); */
+        let mut rng = StdRng::from_entropy();
+
         for node in nodes.iter() {
-            let mut node_guard = node.lock().await;
+            let mut n = node.lock().await;
 
-            // 🔋 Работаем с энергией отдельно
-            {
-                let mut energy = node_guard.energy.lock().await;
+            // --- Работаем с энергией ---
+            let (mut energy_level, efficiency, resilience) = {
+                let mut energy = n.energy.lock().await;
 
-                // 🧮 Расход энергии
-                let consumption = 5.0 * (1.0 - node_guard.efficiency).max(0.1);
+                // 🧮 Энергозатраты
+                let consumption = 5.0 * (1.0 - n.efficiency).max(0.1);
                 energy.consume(consumption);
 
                 // 🔋 Восстановление
-                energy.restore(0.5 * node_guard.resilience);
+                energy.restore(0.5 * n.resilience);
 
-                // 🔄 Ограничиваем диапазон
+                // Ограничиваем энергию
                 energy.level = energy.level.clamp(0.0, 100.0);
 
-                // 🔁 Сохраняем значение для дальнейшей логики
-                if energy.level > 50.0 {
-                    // Освобождаем energy перед изменением node_guard
-                    drop(energy);
-                    node_guard.experience += 0.2;
-                } else if energy.level < 10.0 {
-                    drop(energy);
-                    node_guard.efficiency = (node_guard.efficiency * 0.95).max(0.1);
-                } else {
-                    drop(energy);
-                }
+                (energy.level, n.efficiency, n.resilience)
+            }; // <-- Здесь блокировка энергии завершается!
+
+            // --- Работаем с остальными параметрами ---
+            if energy_level > 50.0 {
+                n.experience += 0.2;
             }
 
-            let energy_level = node_guard.energy.lock().await.level;
+              // ⚙️ Корректировка при низкой энергии
+            if energy_level < 10.0 {
+                n.efficiency = (n.efficiency * 0.95).max(0.1);
+            }
 
             println!(
                 "⚡ {} → энергия: {:.2}, опыт: {:.2}",
-                node_guard.name, energy_level, node_guard.experience
+                n.name, energy_level, n.experience
             );
         }
-        // 💡 Эволюция: поиск лучшей ноды
+
+        // 💡 Поиск лучшей ноды для эволюции
         let mut best_index = 0;
         let mut best_score = f64::MIN;
 
         for (i, node) in nodes.iter().enumerate() {
-            let node_guard = node.lock().await;
-            let energy = node_guard.energy.lock().await;
-            let score = energy.level * 0.3 + node_guard.experience * 0.7;
+            let n = node.lock().await;
+            let e = n.energy.lock().await;
+
+            let score = e.level * 0.3
+                + n.experience * 0.6
+                + n.altruism * 20.0
+                + rng.gen_range(-5.0..5.0);
 
             if score > best_score {
                 best_score = score;
@@ -60,12 +67,22 @@ impl EnergyEvolution {
             }
         }
 
-        // 🌟 Эволюция — усиление параметров лучшей ноды
+        // 🌟 Эволюционирует лучшая нода
         if let Some(best_node) = nodes.get(best_index) {
             let mut n = best_node.lock().await;
-            n.efficiency = (n.efficiency + 0.05).min(1.0);
-            n.altruism = (n.altruism + 0.02).min(1.0);
-            n.resilience = (n.resilience + 0.03).min(1.5);
+
+            // ✳️ Эффект усталости лидера
+            if n.efficiency > 0.9 {
+                n.efficiency *= 0.98;
+                println!( "✳️ → Эффект усталости лидера");
+            }
+            
+            n.efficiency = (n.efficiency + rng.gen_range(0.02..0.07)).min(1.0);
+            n.altruism = (n.altruism + rng.gen_range(0.01..0.04)).min(1.0);
+            n.resilience = (n.resilience + rng.gen_range(0.02..0.06)).min(1.5);
+
+            // 💰 Награда за эволюцию
+            n.wallet.reward(10.0).await;
 
             println!(
                 "🌟 {} эволюционирует! (eff={:.2}, alt={:.2}, res={:.2})",

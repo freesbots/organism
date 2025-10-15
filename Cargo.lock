@@ -705,6 +705,7 @@ dependencies = [
  "log",
  "md5",
  "rand",
+ "rand_chacha",
  "serde",
  "serde_json",
  "sha2",
