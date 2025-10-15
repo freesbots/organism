@@ -149,6 +149,8 @@ http://127.0.0.1:3000
 **ORGANISM Project** — an experiment in digital biology and decentralized systems.  
 Developed in **Rust**, open-source.
 
+©2025. Kazakov Aleksey
+
 ---
 
 ### 🧠 “Living systems are not programmed — they learn.”
