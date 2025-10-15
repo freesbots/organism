@@ -29,7 +29,8 @@ use crate::api::{AppState, create_router};
 use crate::energy_evolution::EnergyEvolution;
 use crate::economy::NetworkFund;
 use crate::economy_cycle::EconomyCycle; 
-use crate::brain::{Brain, BrainSnapshot};
+use crate::brain::{Brain, BrainSnapshot}; 
+use rand::thread_rng;
 use chrono::Utc;
 
 
@@ -147,30 +148,43 @@ async fn main() {
         let fund_ref = fund.clone(); 
         println!("🧠 Инициализация мозга");
 
-        task::spawn(async move {
+        // === Задача 1: основной цикл мозга ===
+        let brain_clone_for_run = Arc::clone(&brain_clone);
+        let nodes_ref_clone = Arc::clone(&nodes_ref);
+        let fund_ref_clone = Arc::clone(&fund_ref);
+        println!("🧠 [INIT] Запуск основного цикла мозга...");  
+        tokio::spawn(async move {
+            let mut brain_copy = {
+                let brain_ref = brain_clone_for_run.read().await;
+                brain_ref.clone() // ✅ клонируем сам Brain, не guard
+            };
+            brain_copy.run(nodes_ref_clone, fund_ref_clone).await;
+        });
+        // === Задача 2: периодическое обновление снимка состояния ===
+        let brain_for_snapshot = Arc::clone(&brain_clone);
+        let snapshot_task_ref_clone = Arc::clone(&snapshot_task_ref);
+        println!("🧠 [DEBUG] Инициализация таски snapshot...");
+       tokio::spawn(async move {
+        println!("📸 [DEBUG] Snapshot task started!");
             loop {
-                let nodes_ref_clone = Arc::clone(&nodes_ref);
-                let fund_ref_clone = Arc::clone(&fund_ref);
-                let brain_ref_clone: Arc<RwLock<Brain>> = Arc::clone(&brain_clone);
+                // 🔹 создаём свежий снимок состояния мозга
+                let snapshot = BrainSnapshot::from_brain_lock(&brain_for_snapshot).await;
 
-                let mut brain = brain_ref_clone.write().await;
-                let mem = brain.memory.get_recent(10).await;
-                let avg = brain.memory.average_result(20).await;
-                let new_snapshot = BrainSnapshot::from_brain(&brain, avg, mem.clone());
+                {
+                    let mut snap = snapshot_task_ref_clone.write().await;
+                    *snap = snapshot.clone();
+                }
 
-                let mut snap = snapshot_task_ref.write().await;
-                *snap = new_snapshot;
-                snap.aggressiveness = brain.aggressiveness;
-                snap.avg_recent_result = avg;
-                snap.recent_memory = mem; // ✅ исправлено
-                snap.last_update = Utc::now().timestamp();
+                println!(
+                    "📸 [Snapshot] обновлён: память = {} событий, агрессивность = {:.2}",
+                    snapshot.recent_memory.len(),
+                    snapshot.aggressiveness
+                );
 
-                brain.run_step(nodes_ref_clone.clone(), fund_ref_clone.clone()).await;
-
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                println!("🪶 [DEBUG] Сознание активировано...");
+                tokio::time::sleep(Duration::from_secs(3)).await;
             }
         });
+        
     }
     
     

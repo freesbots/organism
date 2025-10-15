@@ -79,6 +79,16 @@ REST API built on **Axum**:
 ✅ Organism “pulse” logic (periodic evolution)  
 ✅ REST API server  
 
+
+## ✅ Current Progress
+
+- **Neurocycle (`Brain::run`)** is functional — collects data, processes decisions, and regulates aggressiveness.  
+- **Memory module (`Memory`)** stores events and supports data sampling.  
+- **Snapshots (`BrainSnapshot`)** synchronize brain state with the API.  
+- **API** is accessible and correctly serves `/brain/memory` and `/brain/state`.  
+- **Economy and evolution** are operational in their basic form (tokens, energy, fatigue, signals).
+
+
 ---
 
 ## 🧠 Next Steps
