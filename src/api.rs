@@ -8,6 +8,7 @@ use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use futures::future::join_all;
+use tokio::sync::RwLock;
 use crate::wallet::Wallet;
 use crate::node::Node;
 use crate::economy::NetworkFund;
@@ -20,7 +21,7 @@ use serde_json::json;
 pub struct AppState {
     pub nodes: Arc<Mutex<Vec<Arc<Mutex<Node>>>>>,
     pub fund: Arc<Mutex<NetworkFund>>,
-    pub brain: Arc<Mutex<Brain>>,
+    pub brain: Arc<RwLock<Brain>>,
 } 
 
 #[derive(Serialize)]
@@ -38,9 +39,9 @@ pub struct WalletInfo {
     pub name: String,
     pub balance: f64,
 }
- 
 pub async fn get_brain_memory(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let brain = state.brain.lock().await;
+    let brain = state.brain.read().await; // ← тут просто await, без match
+
     let memory = brain.memory.get_recent(10).await;
 
     let formatted: Vec<_> = memory
@@ -59,19 +60,16 @@ pub async fn get_brain_memory(State(state): State<AppState>) -> Json<serde_json:
         "recent_memory": formatted
     }))
 }
-
-pub fn create_router(state: AppState) -> Router {
-    
-
-async fn get_brain_state(state: State<AppState>) -> Json<serde_json::Value> {
-    let brain = state.brain.lock().await;
+pub async fn get_brain_state(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let brain = state.brain.read().await;
     let avg_result = brain.memory.average_result(20).await;
-    
-    Json(serde_json::json!({
+
+    Json(json!({
         "aggressiveness": brain.aggressiveness,
         "avg_recent_result": avg_result
     }))
 }
+pub fn create_router(state: AppState) -> Router { 
 
 Router::new()
         .route("/", get(root)) 

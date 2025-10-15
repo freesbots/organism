@@ -22,6 +22,7 @@ use axum::{Router};
 use tokio::net::TcpListener;
 use tokio::time::{sleep, Duration};  
 use tower_http::cors::{CorsLayer, Any};
+use tokio::sync::RwLock;
 use interaction::*;
 use crate::node::Node;
 use crate::api::{AppState, create_router};
@@ -29,6 +30,7 @@ use crate::energy_evolution::EnergyEvolution;
 use crate::economy::NetworkFund;
 use crate::economy_cycle::EconomyCycle;
 use crate::brain::Brain;
+
 
 
 
@@ -53,13 +55,13 @@ async fn main() {
     let fund = Arc::new(Mutex::new(NetworkFund::new()));
 
     // ✅ создаём мозг
-    let brain = Arc::new(Mutex::new(Brain::new()));
+    let brain = Arc::new(RwLock::new(Brain::new()));
 
     // ✅ создаём клоны для потоков
     let nodes_ref = Arc::clone(&nodes);
     let fund_ref = Arc::clone(&fund);
-    let brain_ref = Arc::clone(&brain);
-    let brain_clone = Arc::clone(&brain);
+    let brain_ref: Arc<RwLock<Brain>> = Arc::clone(&brain);
+    let brain_clone: Arc<RwLock<Brain>> = Arc::clone(&brain);
 
     // 🧬 Запускаем обработчик сообщений
     for node in shared_nodes.lock().await.iter().cloned() {
@@ -138,13 +140,15 @@ async fn main() {
             loop {
                 let nodes_ref_clone = Arc::clone(&nodes_ref);
                 let fund_ref_clone = Arc::clone(&fund_ref);
-                let brain_ref_clone = Arc::clone(&brain_clone);
+                let brain_ref_clone: Arc<RwLock<Brain>> = Arc::clone(&brain_clone);
 
-                brain_ref_clone
-                    .lock()
+                /* brain_ref_clone
+                    .write()
                     .await
                     .run(nodes_ref_clone, fund_ref_clone)
-                    .await;
+                    .await; */
+                let mut brain = brain_ref_clone.write().await;
+                brain.run_step(nodes_ref_clone.clone(), fund_ref_clone.clone()).await;
 
                 tokio::time::sleep(Duration::from_secs(12)).await;
                 println!("🪶 [DEBUG] Сознание активировано..."); 
@@ -152,17 +156,7 @@ async fn main() {
         });
     }
     
-    /* start_api(nodes.clone(), fund.clone(), brain_ref.clone()).await;
- */
-    /* {
-
-        let nodes_clone = nodes.clone();
-        let fund_clone = fund.clone();
-        tokio::spawn(async move {
-            EconomyCycle::run(nodes_clone, fund_clone).await;
-        });
-    }
- */
+    
     // 🌍 API сервер
     let state = api::AppState {
         nodes: shared_nodes.clone(),

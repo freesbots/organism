@@ -7,6 +7,7 @@ use crate::memory::{Memory, BrainEvent};
 
 use crate::node::Node;
 use crate::economy::NetworkFund;
+use tokio::sync::RwLock; 
 
 /// 🧠 Модуль сознания — координация действий между нодами. 
 
@@ -242,6 +243,18 @@ impl Brain {
         }
     }
 
+    pub async fn run_step(&mut self, nodes: Arc<Mutex<Vec<Arc<Mutex<Node>>>>>, fund: Arc<Mutex<NetworkFund>>) {
+        // одна итерация логики мозга
+        self.memory.record(
+            BrainEvent {
+                timestamp: chrono::Utc::now().timestamp() as u64,
+                action: "thinking".to_string(),
+                context: "analyzing".to_string(),
+                result: 1.0,
+            }
+        ).await;
+        // какая-то логика, например вычисление средней энергии
+    }
     /// Возвращает структуру состояния мозга для API (snapshot).
     pub async fn snapshot(nodes: Arc<Mutex<Vec<Arc<Mutex<Node>>>>>) -> BrainState {
         let snapshot_nodes = {
