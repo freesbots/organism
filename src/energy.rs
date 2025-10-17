@@ -1,6 +1,6 @@
 use crate::node::Node;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use crate::energy_evolution::EnergyEvolution;
 use std::fmt;
 use std::sync::Arc;
@@ -79,7 +79,7 @@ impl EnergySystem {
             }
 
             // Выбираем случайную слабую ноду
-            let mut rng = thread_rng();
+            let mut rng = StdRng::from_entropy();
             if let Some(&target_idx) = weak_nodes.choose(&mut rng) {
                 let giver_level = {
                     let e = nodes[i].energy.lock().await;

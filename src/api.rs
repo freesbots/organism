@@ -41,11 +41,23 @@ struct NodeInfo {
 pub struct WalletInfo {
     pub name: String,
     pub balance: f64,
-}
+} 
 pub async fn get_brain_memory(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let snap = state.snapshot.read().await;
+    // 1️⃣ Берём клон ссылки на память мозга (Arc<Mutex<Memory>>)
+    let memory_arc = {
+        let brain = state.brain.read().await;
+        brain.memory.clone()
+    };
 
-    let formatted: Vec<_> = snap.recent_memory.iter()
+    // 2️⃣ Достаём копию последних событий с помощью get_recent() — он уже безопасный
+    let events = {
+        let memory = memory_arc.lock().await;
+        memory.get_recent(30).await
+    };
+
+    // 3️⃣ Форматируем JSON
+    let formatted: Vec<_> = events
+        .into_iter()
         .map(|e| {
             json!({
                 "timestamp": e.timestamp,
@@ -56,11 +68,15 @@ pub async fn get_brain_memory(State(state): State<AppState>) -> Json<serde_json:
         })
         .collect();
 
+    println!("📡 [API] recent_memory.len() = {}", formatted.len());
+
     Json(json!({
         "status": "ok",
         "recent_memory": formatted
     }))
-} 
+}
+
+
 pub async fn get_brain_state(State(state): State<AppState>) -> Json<serde_json::Value> {
     // Снимок состояния — всегда доступен
     let snapshot = state.snapshot.read().await;

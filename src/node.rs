@@ -3,12 +3,20 @@ use crate::chain::Chain;
 use crate::neuron::Neuron;
 use crate::energy::Energy;
 use crate::wallet::Wallet; 
-use rand::{Rng, rngs::StdRng, SeedableRng};
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 use serde_json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use log::info;
-use serde_json::json;  
+use serde_json::json;   
+use crate::interaction::NetworkBus;
+use crate::interaction::Message;
+
+const DECAY_PER_TICK: f64 = 1.0;
+const REPLICATION_THRESHOLD: f64 = 1.0; // вместо 80
+const REPRODUCTION_COST: f64 = 0.0;
+const MUTATION_RATE: f64 = 0.05;
 
 
 
@@ -33,8 +41,23 @@ pub struct Node {
 impl Node {
     
     // === Создание новой ноды ===
-    pub fn new(name: &str) -> Self {
-        Self {
+    pub fn new(name: &str) -> Arc<Mutex<Node>> {
+        Arc::new(Mutex::new(Node {
+            name: name.to_string(),
+            energy: Arc::new(Mutex::new(Energy::new(name))),
+            efficiency: 1.0,
+            altruism: 0.5,
+            resilience: 0.5,
+            experience: 0.0,
+            data_chain: Arc::new(Mutex::new(Chain::new(&format!("{}_data", name)))),
+            key_chain: Arc::new(Mutex::new(Chain::new(&format!("{}_key", name)))),
+            synapse_chain: Arc::new(Mutex::new(SynapseChain::new())),
+            connections: Arc::new(Mutex::new(vec![])),
+            neurons: Arc::new(Mutex::new(vec![])),
+            wallet: Wallet::new(),
+            rng: Arc::new(Mutex::new(StdRng::from_entropy())),
+        }))
+        /* Self {
             name: name.to_string(),
             energy: Arc::new(Mutex::new(Energy::new(name))), // ✅ теперь правильно
             efficiency: 1.0,
@@ -48,7 +71,7 @@ impl Node {
             neurons: Arc::new(Mutex::new(vec![])),
             wallet: Wallet::new(),
             rng: Arc::new(Mutex::new(StdRng::from_entropy())),
-        }
+        } */
     }
 
     /// Экспортируем нейроны в JSON для обмена между нодами
@@ -239,8 +262,14 @@ impl Node {
             }
         }
  
-        if energy.level > 100.0 {
-            energy.level = 100.0;
+        if energy.level > 40.0 {
+            // шанс размножиться растёт с энергией
+            let chance = (energy.level / 200.0).clamp(0.05, 0.5); // 5–50%
+            if rand::random::<f64>() < chance {
+                println!("🧬 [tick] {} создаёт потомка (шанс {:.2})", self.name, chance);
+                // вызываем логику создания цепи
+                // ...
+            }
         }
         let mut rng = StdRng::from_entropy();
         let commit_value: u64 = rng.gen_range(1..=1000); 
@@ -303,5 +332,162 @@ impl Node {
                 target_energy.level
             );
         }
+    }
+
+    /// Один "шаг жизни" узла — метаболизм, действие, обучение, репликация
+    pub async fn tick(
+        node_arc: Arc<Mutex<Node>>,
+        net: Arc<NetworkBus>,
+        nodes_ref: Arc<Mutex<Vec<Arc<Mutex<Node>>>>>,
+        tick_counter: u64,
+    ) -> Option<Arc<Mutex<Node>>> {
+        let mut guard = node_arc.lock().await;
+        guard.tick_node(net, nodes_ref, tick_counter).await
+    }
+
+    pub async fn tick_node(
+        &mut self,
+        net: Arc<NetworkBus>,
+        nodes_ref: Arc<Mutex<Vec<Arc<Mutex<Node>>>>>,
+        tick_counter: u64,
+    ) -> Option<Arc<Mutex<Node>>> {
+        // === 1. Энергетический decay ===
+        {
+            let mut e = self.energy.lock().await;
+            e.level = (e.level - DECAY_PER_TICK).max(0.0);
+        }
+
+        // === 2. Смерть при нехватке энергии ===
+        if self.energy.lock().await.level <= 0.0 {
+            println!("☠️ Node {} died at tick {}", self.name, tick_counter);
+            return None;
+        }
+
+        // === 3. Поведение: помощь или работа === 
+        let mut action = String::from("idle");
+        let energy_level = { 
+            let e = self.energy.lock().await;
+            e.level
+        };
+
+         
+        let mut rng = StdRng::from_entropy(); // создаём RNG уже после await
+        if rng.gen::<f64>() < self.altruism && energy_level > 1.0 {
+            // сотрудничество — передать немного энергии
+            let node_list_copy: Vec<Arc<Mutex<Node>>> = {
+                let nodes_locked = nodes_ref.lock().await;
+                nodes_locked.clone()
+            };
+
+            let mut candidates: Vec<Arc<Mutex<Node>>> = Vec::new();
+            for node_ref in node_list_copy.iter() {
+                if let Ok(node_guard) = node_ref.try_lock() {  
+                    let energy_alive = node_guard.energy.lock().await.level > 0.0;
+                    if node_guard.name != self.name && energy_alive {
+                        candidates.push(node_ref.clone());
+                    }
+                }
+            }
+
+            if !candidates.is_empty() {
+                let target_arc = {
+                    let mut rng = StdRng::from_entropy();
+                    candidates[rng.gen_range(0..candidates.len())].clone()
+                };
+
+                if target_arc.lock().await.name == self.name {
+                    return None; // не отправляем сообщение самому себе
+                }
+                let target_name = target_arc.lock().await.name.clone();
+                let msg = Message::new_energy_transfer(&self.name, &target_name, 5.0);
+                net.send(msg).await;
+
+                let mut my_energy = self.energy.lock().await;
+                my_energy.level = (my_energy.level - 1.0).max(0.0);
+                println!("🔋 {} shared energy with {}", self.name, target_name);
+            }
+        } else {
+            // работа — получить награду
+            let reward = rng.gen_range(2.0..5.0) * (1.0 + self.efficiency);
+            let mut e = self.energy.lock().await;
+            e.level += reward;
+            action = format!("worked +{:.2}", reward);
+        }
+        
+        // === 4. Обучение ===
+        self.local_learn().await;
+        
+        // === 5. Репликация ===
+        let energy_val = self.energy.lock().await.level;
+        println!(
+            "🔎 [DEBUG] {} energy before replication check = {:.2} (threshold = {:.2})",
+            self.name, energy_val, REPLICATION_THRESHOLD
+        );
+        if energy_val > REPLICATION_THRESHOLD {
+             
+            let child = self.spawn_child().await;
+            {
+                
+                let mut e = self.energy.lock().await;
+                e.level = (e.level - REPRODUCTION_COST).max(0.0);
+                
+            }
+            let (child_name, eff, alt) = {
+                let c = child.lock().await;
+                (c.name.clone(), c.efficiency, c.altruism)
+            };
+
+            println!(
+                "🌱 {} replicated -> {} (eff={:.2}, alt={:.2})",
+                self.name, child_name, eff, alt
+            );
+            
+            return Some(child);
+        }
+         
+        // === 6. Логирование ===
+        println!(
+            "🧠 {} action: {} | energy: {:.2}",
+            self.name,
+            action,
+            self.energy.lock().await.level
+        );
+
+        None
+    }
+    async fn local_learn(&mut self) {
+        // Простая адаптация altruism на основе текущей энергии
+        let energy = self.energy.lock().await.level;
+        if energy > 150.0 {
+            self.altruism = (self.altruism + 0.002).min(1.0);
+        } else if energy < 50.0 {
+            self.altruism = (self.altruism - 0.002).max(0.0);
+        }
+    }
+    async fn spawn_child(&self) -> Arc<Mutex<Node>> {
+
+        println!("↪ [tick] node={} before action energy={:.2} altruism={:.2} efficiency={:.2}",  self.name, self.energy.lock().await.level, self.altruism, self.efficiency);
+ 
+        let child_name = format!("{}_child_{}", self.name, chrono::Utc::now().timestamp_millis());
+
+        // `Node::new` уже возвращает Arc<Mutex<Node>>
+        let child = Node::new(&child_name);
+
+        {
+            let parent_energy = { self.energy.lock().await.level };
+
+            // затем создаём RNG
+            let mut rng = StdRng::from_entropy();
+            let extra_energy = rng.gen_range(5.0..15.0);
+
+            // теперь lock child и применяем
+            let mut child_guard = child.lock().await;
+            child_guard.altruism = (self.altruism + rng.gen_range(-MUTATION_RATE..MUTATION_RATE)).clamp(0.0, 1.0);
+            let mut child_energy = child_guard.energy.lock().await;
+            child_energy.level = parent_energy * 0.3;
+            child_energy.level += extra_energy;
+        }
+        println!("↩ [tick] node={} after action energy={:.2}", self.name, self.energy.lock().await.level);  
+        child
     }
 }

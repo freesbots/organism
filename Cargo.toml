@@ -18,3 +18,4 @@ tower = "0.4"                 # ✅ добавь эту строку
 tower-http = { version = "0.5", features = ["cors"] }  # ✅ для CORS
 futures = "0.3" 
 chrono = { version = "0.4", features = ["serde"] } 
+ 

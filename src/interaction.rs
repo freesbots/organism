@@ -33,6 +33,16 @@ impl Message {
             content: content.map(|s| s.to_string()),
         }
     }
+
+    pub fn new_energy_transfer(from: &str, to: &str, amount: f64) -> Self {
+        Self {
+            from: from.to_string(),
+            to: Some(to.to_string()),
+            msg_type: MessageType::EnergyTransfer,           // 👈 тип сообщения
+            value: amount,                                  // 👈 передаём энергию
+            content: Some("Energy transfer 💡".to_string()), // 👈 описание
+        }
+    }
 }
 
 /// Каналы связи между нодами
@@ -66,13 +76,21 @@ impl NetworkBus {
 
 /// Пример поведения ноды при получении сообщения
 pub async fn handle_message(node: Arc<Mutex<Node>>, msg: Message, network: Arc<NetworkBus>) {
-    let n = node.lock().await;
+    let mut n = node.lock().await;
 
     match msg.msg_type {
+        // 🔋 Получение энергии
+        MessageType::EnergyTransfer => {
+            let mut energy = n.energy.lock().await;
+            energy.restore(msg.value);
+            println!("🔋 {} получил {:.1} энергии от {}", n.name, msg.value, msg.from);
+        }
+
+        // 🙋 Запрос на помощь
         MessageType::HelpRequest => {
-            // Если у нас достаточно энергии — помогаем
             let current_energy = n.energy.lock().await.level;
             if current_energy > 30.0 && n.altruism > 0.5 {
+                // формируем ответ
                 let response = Message::new(
                     &n.name,
                     msg.to.as_deref(),
@@ -85,18 +103,20 @@ pub async fn handle_message(node: Arc<Mutex<Node>>, msg: Message, network: Arc<N
             }
         }
 
-        MessageType::EnergyTransfer => {
-            let mut energy = n.energy.lock().await;
-            energy.restore(msg.value);
-            println!("🔋 {} получил {:.1} энергии от {}", n.name, msg.value, msg.from);
-        }
-
+        // 🧱 Объявление нового блока
         MessageType::BlockAnnouncement => {
             println!("🧱 {} получил уведомление о новом блоке от {}", n.name, msg.from);
         }
 
+        // 🧐 Проверка блока
         MessageType::ValidateBlock => {
             println!("🧐 {} проверяет блок от {}", n.name, msg.from);
         }
+
+        // ⚙️ По умолчанию
+        _ => {
+            println!("ℹ️ {} получил сообщение {:?} от {}", n.name, msg.msg_type, msg.from);
+        }
     }
 }
+
